@@ -6,7 +6,7 @@ let S={user:null,profile:null,clients:[],actions:[],client:null};
 const esc=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const date=x=>x?new Date(x+'T00:00:00').toLocaleDateString('pt-BR'):'—';
 function login(msg=''){app.innerHTML=`<main class="auth"><div class="authbox"><div class="logo">AG<span>CARE</span></div><h1>Entrar</h1><p>Gestão, diagnóstico e plano de ação.</p>${msg?`<div class="error">${esc(msg)}</div>`:''}<form id="f"><label>E-mail<input id="e" type="email" required></label><label>Senha<input id="p" type="password" required></label><button>Entrar</button></form><button type="button" onclick="forgot()" class="linkbtn">Esqueci minha senha</button></div></main>`;document.getElementById('f').onsubmit=async e=>{e.preventDefault();const b=e.submitter;b.disabled=true;b.textContent='Entrando…';const {error}=await db.auth.signInWithPassword({email:document.getElementById('e').value,password:document.getElementById('p').value});if(error)login(error.message)}}
-function forgot(){app.innerHTML='<main class="auth"><div class="authbox"><div class="logo">AG<span>CARE</span></div><h1>Recuperar acesso</h1><p>Informe seu e-mail para receber um link.</p><form id="rf"><label>E-mail<input id="re" type="email" required></label><button>Enviar link</button></form><button class="linkbtn" id="back">Voltar</button></div></main>';document.getElementById('back').onclick=()=>login();document.getElementById('rf').onsubmit=async e=>{e.preventDefault();const email=document.getElementById('re').value.trim();const fn=['reset','Password','ForEmail'].join('');const r=await db.auth[fn](email,{redirectTo:window.location.origin+window.location.pathname});if(r.error)return alert(r.error.message);alert('Se o e-mail existir, o link foi enviado.');login()}}function error(m){app.innerHTML=`<main class="auth"><div class="authbox"><div class="logo">AG<span>CARE</span></div><h2>Acesso não configurado</h2><div class="error">${esc(m)}</div><button onclick="login()">Voltar</button></div></main>`}
+function forgot(){app.innerHTML='<main class="auth"><div class="authbox"><div class="logo">AG<span>CARE</span></div><h1>Recuperar acesso</h1><p>Informe seu e-mail para receber um link.</p><form id="rf"><label>E-mail<input id="re" type="email" required></label><button>Enviar link</button></form><button class="linkbtn" id="back">Voltar</button></div></main>';document.getElementById('back').onclick=()=>login();document.getElementById('rf').onsubmit=async e=>{e.preventDefault();const email=document.getElementById('re').value.trim();const fn=['reset','Password','ForEmail'].join('');const r=await db.auth[fn](email,{redirectTo:window.location.origin+window.location.pathname+'?recovery=1'});if(r.error)return alert(r.error.message);alert('Se o e-mail existir, o link foi enviado.');login()}}function error(m){app.innerHTML=`<main class="auth"><div class="authbox"><div class="logo">AG<span>CARE</span></div><h2>Acesso não configurado</h2><div class="error">${esc(m)}</div><button onclick="login()">Voltar</button></div></main>`}
 function shell(title,body){app.innerHTML=`<div class="layout"><aside><div class="logo">AG<span>CARE</span></div><small>${esc(S.profile.papel)}</small><nav><a href="#" onclick="go('dash')">Dashboard</a><a href="#" onclick="go('actions')">Plano de Ação</a>${S.profile.papel==='admin'?'<a href="#" onclick="go(\'clients\')">Empresas</a>':''}</nav><div class="side"><b>${esc(S.profile.nome||S.user.email)}</b><span>${esc(S.user.email)}</span><button class="out" onclick="db.auth.signOut()">Sair</button></div></aside><main class="main"><header><div><small>AG CARE</small><h1>${esc(title)}</h1></div><span class="tag">${esc(S.profile.papel)}</span></header>${body}</main></div>`}
 async function load(){const {data:p,error}=await db.from('perfis_usuario').select('id,nome,papel,ativo').eq('id',S.user.id).maybeSingle();if(error)return errorBox(error.message);if(!p||!p.ativo)return errorBox('Usuário sem perfil ativo.');S.profile=p;if(p.papel==='admin'){const r=await db.from('clientes').select('*').order('nome');if(r.error)return errorBox(r.error.message);S.clients=r.data||[];await admin()}else{const l=await db.from('cliente_usuarios').select('cliente_id').eq('usuario_id',S.user.id);if(l.error)return errorBox(l.error.message);const ids=[...new Set((l.data||[]).map(x=>x.cliente_id))];if(!ids.length)return errorBox('Usuário ainda não está vinculado a uma empresa.');const c=await db.from('clientes').select('*').in('id',ids).order('nome');if(c.error)return errorBox(c.error.message);S.clients=c.data||[];S.client=S.clients[0];await client()}}
 function errorBox(m){error(m)}
@@ -17,18 +17,30 @@ async function client(){const r=await db.from('acoes').select('*').eq('cliente_i
 async function complete(id){const r=await db.from('acoes').update({status:'concluída',concluido_em:new Date().toISOString()}).eq('id',id);if(r.error)return alert(r.error.message);await client()}
 function go(v){event?.preventDefault();if(S.profile.papel==='admin')return admin();return client()}
 async function start(){
-  const recovery=()=>location.hash.includes('type=recovery');
+  const recovery=()=>location.search.includes('recovery=1')||location.hash.includes('type=recovery');
+  let recoveryHandled=false;
   const showRecovery=()=>{
+    if(recoveryHandled)return;
+    recoveryHandled=true;
     app.innerHTML='<main class="auth"><div class="authbox"><div class="logo">AG<span>CARE</span></div><h1>Nova senha</h1><p>Defina sua nova senha de acesso.</p><form id="pf"><label>Nova senha<input id="np" type="password" minlength="6" required></label><label>Confirmar senha<input id="cp" type="password" minlength="6" required></label><button>Salvar nova senha</button></form></div></main>';
-    document.getElementById('pf').onsubmit=async e=>{e.preventDefault();const np=document.getElementById('np').value;if(np!==document.getElementById('cp').value)return alert('As senhas não conferem.');const r=await db.auth.updateUser({password:np});if(r.error)return alert(r.error.message);await db.auth.signOut();history.replaceState({},'',window.location.pathname);login('Senha atualizada. Entre com sua nova senha.');};
+    document.getElementById('pf').onsubmit=async e=>{
+      e.preventDefault();
+      const np=document.getElementById('np').value;
+      if(np!==document.getElementById('cp').value)return alert('As senhas não conferem.');
+      const r=await db.auth.updateUser({password:np});
+      if(r.error)return alert(r.error.message);
+      await db.auth.signOut();
+      history.replaceState({},'',window.location.pathname);
+      login('Senha atualizada. Entre com sua nova senha.');
+    };
   };
-  const {data:{session}}=await db.auth.getSession();
-  if(recovery()&&session){showRecovery();return;}
-  if(session){S.user=session.user;await load();return;}
-  login();
   db.auth.onAuthStateChange(async(event,session)=>{
     if(event==='PASSWORD_RECOVERY'&&session){showRecovery();return;}
-    if(session&&!recovery()){S.user=session.user;await load();}
-    else if(!session&&!recovery())login();
+    if(session&&!recovery()&&!recoveryHandled){S.user=session.user;await load();}
+    else if(!session&&!recovery()&&!recoveryHandled)login();
   });
+  const {data:{session}}=await db.auth.getSession();
+  if(recovery()&&session){showRecovery();return;}
+  if(session&&!recoveryHandled){S.user=session.user;await load();return;}
+  if(!session&&!recovery())login();
 }start();
