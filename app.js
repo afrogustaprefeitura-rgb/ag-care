@@ -13,65 +13,10 @@ function errorBox(m){error(m)}
 function inviteForm(){app.innerHTML=`<div class="layout"><aside><div class="logo">AG<span>CARE</span></div><small>admin</small><nav><a href="#" onclick="admin()">Dashboard</a><a href="#" onclick="admin()">Empresas</a></nav><div class="side"><b>${esc(S.profile.nome||S.user.email)}</b><span>${esc(S.user.email)}</span><button class="out" onclick="db.auth.signOut()">Sair</button></div></aside><main class="main"><header><div><small>AG CARE</small><h1>Convidar usuário</h1></div><span class="tag">admin</span></header><section class="panel"><p>O usuário receberá um e-mail para definir a senha e acessar a empresa selecionada.</p><form id="inviteForm"><label>Nome<input id="inome" required></label><label>E-mail<input id="iemail" type="email" required></label><label>Empresa<select id="icliente" required>${S.clients.map(c=>`<option value="${c.id}">${esc(c.nome)}</option>`).join('')}</select></label><button>Enviar convite</button><button type="button" class="linkbtn" onclick="admin()">Cancelar</button></form></section></main></div>`;document.getElementById('inviteForm').onsubmit=inviteUser}
 async function inviteUser(e){e.preventDefault();const b=e.submitter;b.disabled=true;b.textContent='Enviando…';const {data:{session}}=await db.auth.getSession();if(!session)return login('Sua sessão expirou.');const r=await db.functions.invoke('admin-invite-client-v2',{body:{nome:document.getElementById('inome').value.trim(),email:document.getElementById('iemail').value.trim(),cliente_id:Number(document.getElementById('icliente').value)}});if(r.error){b.disabled=false;b.textContent='Enviar convite';return alert(r.error.message)}const data=r.data||{};if(data.error){b.disabled=false;b.textContent='Enviar convite';return alert(data.error)}await admin();alert('Convite enviado com sucesso.');}
 function table(a){return `<section class="panel"><h2>Plano de ação</h2><table><thead><tr><th>Ação</th><th>Área</th><th>Fase</th><th>Prazo</th><th>Score</th><th>Status</th></tr></thead><tbody>${a.map(x=>`<tr><td>${esc(x.acao)}</td><td>${esc(x.area)}</td><td>${esc(x.fase_plano)}</td><td>${date(x.prazo)}</td><td>${x.score??'—'}</td><td>${esc(x.status)}</td></tr>`).join('')}</tbody></table></section>`}
-async function client(){
-const r=await db.from('acoes').select('*').eq('cliente_id',S.client.id).order('prazo');
-if(r.error)return errorBox(r.error.message);
-S.actions=r.data||[];
-const all=S.actions,done=all.filter(x=>x.concluido_em),open=all.filter(x=>!x.concluido_em);
-const today=new Date();today.setHours(0,0,0,0);
-const in7=new Date(today);in7.setDate(in7.getDate()+7);
-const overdue=open.filter(x=>x.prazo&&new Date(x.prazo+'T00:00:00')<today);
-const next7=open.filter(x=>x.prazo&&new Date(x.prazo+'T00:00:00')>=today&&new Date(x.prazo+'T00:00:00')<=in7);
-const pct=all.length?Math.round(done.length/all.length*100):0;
-const avg=all.length?Math.round(all.reduce((n,x)=>n+(Number(x.score)||0),0)/all.length):0;
-const priority=all.filter(x=>Number(x.score)>=70).length;
-const inprog=open.filter(x=>x.status==='em andamento').length;
-const blocked=open.filter(x=>x.status==='bloqueada').length;
-const phases=['0–30 dias','31–60 dias','61–90 dias'].map(f=>{const q=all.filter(x=>x.fase_plano===f),d=q.filter(x=>x.concluido_em).length;return {f,q,d,p:q.length?Math.round(d/q.length*100):0}});
-const h=await db.from('acoes_historico').select('id,acao_id,evento,dados,created_at').eq('cliente_id',S.client.id).order('created_at',{ascending:false}).limit(8);
-const history=h.error?[]:(h.data||[]);
-const card=x=>`<article class="client-action-card"><div class="client-action-top"><div><small>${esc(x.area||'Sem área')} · ${esc(x.fase_plano||'Sem fase')}</small><h3>${esc(x.acao)}</h3></div><span class="status-pill">${esc(x.concluido_em?'concluída':(x.status||'pendente'))}</span></div><div class="client-action-meta"><span>Prazo <b>${date(x.prazo)}</b></span><span>Score <b>${x.score??'—'}</b></span><span>Prioridade <b>${esc(x.prioridade||'normal')}</b></span></div>${x.concluido_em?'<div class="client-action-done">✓ Ação concluída</div>':(x.prazo&&new Date(x.prazo+'T00:00:00')<today?'<div class="client-action-overdue">⚠ Ação atrasada</div>':'')}</article>`;
-const label=e=>e==='atualizada'?'Ação atualizada':e==='reaberta'?'Ação reaberta':e==='concluida'?'Ação concluída':e==='criada'?'Ação criada':e==='excluida'?'Ação excluída':e;
-shell('Painel da empresa',`<section class="hero"><small>ACOMPANHAMENTO AG CARE · ${esc(S.client.id_diagnostico)}</small><h2>${esc(S.client.nome)}</h2><p>${esc(S.client.segmento)} · ${esc(S.client.cidade_uf)}</p></section>
-<section class="grid client-kpis"><div class="card"><span>Plano concluído</span><b>${pct}%</b><small>${done.length} de ${all.length} ações</small></div><div class="card"><span>Ações atrasadas</span><b>${overdue.length}</b><small>${overdue.length?'Precisam de atenção':'Nenhuma ação atrasada'}</small></div><div class="card"><span>Próximos 7 dias</span><b>${next7.length}</b><small>${next7.length?'Com prazo nesta janela':'Nenhuma ação nesta janela'}</small></div><div class="card"><span>Score médio do plano</span><b>${avg}</b><small>${priority} ações com score ≥ 70</small></div></section>
-<section class="panel client-progress"><small>PLANO DE AÇÃO</small><h2>Progresso do plano</h2><p><b>${done.length} de ${all.length}</b> ações concluídas · ${pct}%</p><div class="progress-track"><span style="width:${pct}%"></span></div></section>
-<section class="panel"><small>PLANO DE AÇÃO</small><h2>Progresso por etapa</h2><div class="phase-list">${phases.map(x=>`<div class="phase-row"><b>${x.f}</b><span>${x.d}/${x.q.length} concluídas · ${x.p}%</span><div class="phase-track"><span style="width:${x.p}%"></span></div></div>`).join('')}</div></section>
-${overdue.length?`<section class="panel attention-panel"><small>ATENÇÃO</small><h2>Ações atrasadas <b>${overdue.length}</b></h2><div class="client-action-list">${overdue.map(card).join('')}</div></section>`:''}
-<section class="panel"><small>PRÓXIMOS PASSOS</small><h2>Próximos 7 dias <b>${next7.length}</b></h2>${next7.length?`<div class="client-action-list">${next7.map(card).join('')}</div>`:'<p>Nenhuma ação vence nos próximos 7 dias.</p>'}</section>
-<section class="panel"><small>INDICADORES</small><h2>Visão do diagnóstico</h2><div class="diagnostic-grid"><div>Score médio do plano <b>${avg}</b></div><div>Ações prioritárias <b>${priority}</b></div><div>Em andamento <b>${inprog}</b></div><div>Bloqueadas <b>${blocked}</b></div></div></section>
-<section class="panel"><small>MOVIMENTAÇÕES</small><h2>Últimas movimentações</h2>${history.length?history.map(x=>`<div class="movement"><b>${esc(label(x.evento))}</b><p>${esc(x.dados?.depois?.acao||x.dados?.antes?.acao||'Movimentação registrada')}</p><time>${new Date(x.created_at).toLocaleString('pt-BR')}</time></div>`).join(''):'<p>Nenhuma movimentação registrada.</p>'}</section>
-<section class="panel"><small>ACOMPANHAMENTO</small><h2>Histórico das ações</h2><div class="client-actions-grid">${all.map(card).join('')}</div></section>`);
-}
-async function complete(id){const r=await db.from('acoes').update({status:'concluída',concluido_em:new Date().toISOString()}).eq('id',id);if(r.error)return alert(r.error.message);await client()}
-function go(v){event?.preventDefault();if(S.profile.papel==='admin')return admin();return client()}
-async function start(){
-  const recovery=()=>location.search.includes('recovery=1')||location.hash.includes('type=recovery');
-  let recoveryHandled=false;
-  const showRecovery=()=>{
-    if(recoveryHandled)return;
-    recoveryHandled=true;
-    app.innerHTML='<main class="auth"><div class="authbox"><div class="logo">AG<span>CARE</span></div><h1>Nova senha</h1><p>Defina sua nova senha de acesso.</p><form id="pf"><label>Nova senha<input id="np" type="password" minlength="6" required></label><label>Confirmar senha<input id="cp" type="password" minlength="6" required></label><button>Salvar nova senha</button></form></div></main>';
-    document.getElementById('pf').onsubmit=async e=>{
-      e.preventDefault();
-      const np=document.getElementById('np').value;
-      if(np!==document.getElementById('cp').value)return alert('As senhas não conferem.');
-      const r=await db.auth.updateUser({password:np});
-      if(r.error)return alert(r.error.message);
-      await db.auth.signOut();
-      history.replaceState({},'',window.location.pathname);
-      login('Senha atualizada. Entre com sua nova senha.');
-    };
-  };
-  db.auth.onAuthStateChange(async(event,session)=>{
-    if(event==='PASSWORD_RECOVERY'&&session){showRecovery();return;}
-    if(session&&!recovery()&&!recoveryHandled){S.user=session.user;await load();}
-    else if(!session&&!recovery()&&!recoveryHandled)login();
-  });
-  const {data:{session}}=await db.auth.getSession();
-  if(recovery()&&session){showRecovery();return;}
-  if(session&&!recoveryHandled){S.user=session.user;await load();return;}
-  if(!session&&!recovery())login();
-}
+
+
+
+
 async function admin(){const r=await db.from('acoes').select('*').is('concluido_em',null).order('prazo');if(r.error)return errorBox(r.error.message);S.actions=r.data||[];const critical=S.actions.filter(x=>+x.score>=70).length;const due=S.actions.filter(x=>x.prazo&&new Date(x.prazo+'T00:00:00')<=new Date()).length;const done=await db.from('acoes').select('id',{count:'exact',head:true}).not('concluido_em','is',null);const doneCount=done.count||0;shell('Dashboard Admin',`<div class="grid"><div class="card"><span>Empresas</span><b>${S.clients.length}</b></div><div class="card"><span>Ações abertas</span><b>${S.actions.length}</b></div><div class="card"><span>Score ≥ 70</span><b>${critical}</b></div><div class="card"><span>Vencidas/hoje</span><b>${due}</b></div></div><section class="panel"><div style="display:flex;justify-content:space-between;align-items:center;gap:12px"><h2>Empresas</h2><button class="mini" onclick="inviteForm()">+ Convidar usuário</button></div><p class="muted">Ações concluídas no sistema: <b>${doneCount}</b></p><table><thead><tr><th>Empresa</th><th>Diagnóstico</th><th>Responsável</th><th>Ações abertas</th><th></th></tr></thead><tbody>${S.clients.map(c=>`<tr><td><b>${esc(c.nome)}</b><small>${esc(c.segmento)}</small></td><td>${esc(c.id_diagnostico)}</td><td>${esc(c.responsavel)}</td><td>${S.actions.filter(a=>a.cliente_id===c.id).length}</td><td><button class="mini" onclick="adminClient(${c.id})">Gerenciar</button></td></tr>`).join('')}</tbody></table></section>`)}
 async function adminClient(id){const c=S.clients.find(x=>x.id===id);const r=await db.from('acoes').select('*').eq('cliente_id',id).order('concluido_em',{ascending:true}).order('prazo');if(r.error)return error(r.error.message);const actions=r.data||[];S.actions=actions;shell('Gerenciar empresa',`<button class="back" onclick="admin()">← Voltar</button><section class="hero"><small>${esc(c.id_diagnostico)}</small><h2>${esc(c.nome)}</h2><p>${esc(c.cidade_uf)} · ${esc(c.responsavel)}</p></section><section class="panel"><div class="panelhead"><h2>Plano de ação</h2><button class="mini" onclick="actionForm(null,${id})">+ Nova ação</button></div><table><thead><tr><th>Ação</th><th>Área</th><th>Fase</th><th>Prazo</th><th>Score</th><th>Status</th><th></th></tr></thead><tbody>${actions.map(x=>`<tr class="${x.concluido_em?'done':''}"><td><b>${esc(x.acao)}</b><small>${esc(x.problema||'')}</small></td><td>${esc(x.area)}</td><td>${esc(x.fase_plano)}</td><td>${date(x.prazo)}</td><td>${x.score??'—'}</td><td><span class="status">${esc(x.concluido_em?'Concluída':x.status)}</span></td><td><button class="mini" onclick="actionForm(${x.id},${id})">Editar</button></td></tr>`).join('')}</tbody></table></section>`)}
 
