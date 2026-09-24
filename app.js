@@ -19,7 +19,55 @@ async function loadHistory(id){const r=await db.from('acoes_historico').select('
 
 async function saveAction(e,id,clienteId){e.preventDefault();const status=document.getElementById('fstatus').value;const payload={cliente_id:clienteId,acao:document.getElementById('facao').value.trim(),area:document.getElementById('farea').value.trim(),problema:document.getElementById('fproblema').value.trim()||null,prazo:document.getElementById('fprazo').value,responsavel:document.getElementById('fresp').value.trim()||null,prioridade:document.getElementById('fprior').value,fase_plano:document.getElementById('ffase').value,status,concluido_em:status==='concluída'?new Date().toISOString():null};const r=id?await db.from('acoes').update(payload).eq('id',id):await db.from('acoes').insert(payload);if(r.error)return alert(r.error.message);await adminClient(clienteId);alert(id?'Ação atualizada.':'Ação criada.');}
 
-async function client(){const r=await db.from('acoes').select('*').eq('cliente_id',S.client.id).is('concluido_em',null).order('prazo');if(r.error)return errorBox(r.error.message);S.actions=r.data||[];const a=S.actions[0],p1=S.actions.filter(x=>x.fase_plano==='0–30 dias').length,p2=S.actions.filter(x=>x.fase_plano==='31–60 dias').length,p3=S.actions.filter(x=>x.fase_plano==='61–90 dias').length;shell('Minha empresa',`<section class="hero"><small>${esc(S.client.id_diagnostico)}</small><h2>${esc(S.client.nome)}</h2><p>${esc(S.client.segmento)} · ${esc(S.client.cidade_uf)}</p></section><div class="grid"><div class="card"><span>Ações abertas</span><b>${S.actions.length}</b></div><div class="card"><span>0–30 dias</span><b>${p1}</b></div><div class="card"><span>31–60 dias</span><b>${p2}</b></div><div class="card"><span>61–90 dias</span><b>${p3}</b></div></div>${a?`<section class="next"><small>PRÓXIMA AÇÃO</small><h2>${esc(a.acao)}</h2><p>Prazo: <b>${date(a.prazo)}</b> · Score: <b>${a.score??'—'}</b></p><button onclick="complete(${a.id})">Marcar como concluída</button></section>`:'<section class="success">🎉 Nenhuma ação aberta.</section>'}${table(S.actions)}`)}
+async function client(){
+  const r=await db.from('acoes').select('*').eq('cliente_id',S.client.id).order('prazo');
+  if(r.error)return errorBox(r.error.message);
+  const all=r.data||[];
+  S.actions=all.filter(x=>!x.concluido_em);
+  const open=S.actions;
+  const completed=all.filter(x=>!!x.concluido_em);
+  const today=new Date(); today.setHours(0,0,0,0);
+  const plus7=new Date(today); plus7.setDate(plus7.getDate()+7);
+  const overdue=open.filter(x=>x.prazo&&new Date(x.prazo+'T00:00:00')<today);
+  const next7=open.filter(x=>x.prazo&&new Date(x.prazo+'T00:00:00')>=today&&new Date(x.prazo+'T00:00:00')<=plus7);
+  const total=all.length;
+  const progress=total?Math.round(completed.length/total*100):0;
+  const avgScore=all.length?Math.round((all.reduce((s,x)=>s+(Number(x.score)||0),0)/all.length)*10)/10:0;
+  const high=all.filter(x=>(Number(x.score)||0)>=70).length;
+  const phases=['0–30 dias','31–60 dias','61–90 dias'].map((phase,i)=>{
+    const items=all.filter(x=>x.fase_plano===phase);
+    const done=items.filter(x=>!!x.concluido_em).length;
+    const pct=items.length?Math.round(done/items.length*100):0;
+    return {phase,done,total:items.length,pct,label:['0–30','31–60','61–90'][i]};
+  });
+  const h=await db.from('acoes_historico').select('acao_id,evento,dados,created_at').eq('cliente_id',S.client.id).order('created_at',{ascending:false}).limit(8);
+  const history=h.error?[]:(h.data||[]);
+  const actionMap=Object.fromEntries(all.map(x=>[x.id,x]));
+  shell('Painel da empresa',`
+    <div class='client-dashboard'>
+      <section class='client-welcome'><div><small>ACOMPANHAMENTO AG CARE</small><h2>${esc(S.client.nome)}</h2><p>${esc(S.client.segmento)} · ${esc(S.client.cidade_uf)}</p></div><div class='client-progress'><b>${progress}%</b><span>do plano concluído</span></div></section>
+      <div class='client-kpis'>
+        <div class='client-kpi'><span>Plano concluído</span><b>${progress}%</b><small>${completed.length} de ${total} ações</small></div>
+        <div class='client-kpi'><span>Ações atrasadas</span><b>${overdue.length}</b><small>${overdue.length?'Precisam de atenção':'Nenhuma pendência vencida'}</small></div>
+        <div class='client-kpi'><span>Próximos 7 dias</span><b>${next7.length}</b><small>com prazo nesta janela</small></div>
+        <div class='client-kpi'><span>Score médio</span><b>${avgScore||'—'}</b><small>${high} ações com score ≥ 70</small></div>
+      </div>
+      <section class='client-panel'><div class='client-panel-head'><div><small>PLANO DE AÇÃO</small><h2>Progresso por etapa</h2></div><span class='client-badge'>${completed.length}/${total} concluídas</span></div><div class='phase-list'>
+        ${phases.map(p=>`<div class='phase-row'><div class='phase-top'><b>${p.label} dias</b><span>${p.done}/${p.total} · ${p.pct}%</span></div><div class='progress-track'><i style='width:${p.pct}%'></i></div></div>`).join('')}
+      </div></section>
+      <div class='client-two-col'>
+        <section class='client-panel'><div class='client-panel-head'><div><small>ATENÇÃO</small><h2>Ações atrasadas</h2></div><span class='client-count danger'>${overdue.length}</span></div>${overdue.length?overdue.map(x=>`<div class='client-action-row danger-row'><div><b>${esc(x.acao)}</b><small>${esc(x.area||'')} · prazo ${date(x.prazo)}</small></div><span>${esc(x.prioridade||'normal')}</span></div>`).join(''):'<div class=\'empty-client\'>Nenhuma ação atrasada.</div>'}</section>
+        <section class='client-panel'><div class='client-panel-head'><div><small>PRÓXIMOS PASSOS</small><h2>Próximos 7 dias</h2></div><span class='client-count'>${next7.length}</span></div>${next7.length?next7.map(x=>`<div class='client-action-row'><div><b>${esc(x.acao)}</b><small>${esc(x.area||'')} · ${date(x.prazo)}</small></div><span>${esc(x.status||'pendente')}</span></div>`).join(''):'<div class=\'empty-client\'>Nenhuma ação vence nos próximos 7 dias.</div>'}</section>
+      </div>
+      <section class='client-panel'><div class='client-panel-head'><div><small>INDICADORES</small><h2>Visão do diagnóstico</h2></div></div><div class='indicator-grid'>
+        <div><span>Score médio das ações</span><b>${avgScore||'—'}</b></div><div><span>Ações prioritárias</span><b>${high}</b></div><div><span>Em andamento</span><b>${all.filter(x=>x.status==='em andamento'&&!x.concluido_em).length}</b></div><div><span>Bloqueadas</span><b>${all.filter(x=>x.status==='bloqueada'&&!x.concluido_em).length}</b></div>
+      </div></section>
+      <section class='client-panel'><div class='client-panel-head'><div><small>MOVIMENTAÇÕES</small><h2>Últimas movimentações</h2></div></div>
+        ${history.length?history.map(x=>`<div class='movement'><div class='movement-dot'></div><div><b>${esc(x.evento)}</b><p>${esc(actionMap[x.acao_id]?.acao||'Ação')}</p></div><time>${new Date(x.created_at).toLocaleString('pt-BR')}</time></div>`).join(''):'<div class=\'empty-client\'>Ainda não há movimentações registradas.</div>'}
+      </section>
+      <section class='client-panel'><div class='client-panel-head'><div><small>ACOMPANHAMENTO</small><h2>Histórico das ações</h2></div></div>${table(all)}</section>
+    </div>`);
+}
 async function complete(id){const r=await db.from('acoes').update({status:'concluída',concluido_em:new Date().toISOString()}).eq('id',id);if(r.error)return alert(r.error.message);await client();alert('Ação marcada como concluída.');}
 function go(v){event?.preventDefault();if(S.profile.papel==='admin')return admin();return client()}
 async function start(){
