@@ -71,8 +71,30 @@ async function client(){
       <section class='client-panel'><div class='client-panel-head'><div><small>MOVIMENTAÇÕES</small><h2>Últimas movimentações</h2></div></div>
         ${history.length?history.map(x=>`<div class='movement'><div class='movement-dot'></div><div><b>${esc(x.evento)}</b><p>${esc(actionMap[x.acao_id]?.acao||'Ação')}</p></div><time>${new Date(x.created_at).toLocaleString('pt-BR')}</time></div>`).join(''):'<div class=\'empty-client\'>Ainda não há movimentações registradas.</div>'}
       </section>
-      <section class='client-panel'><div class='client-panel-head'><div><small>ACOMPANHAMENTO</small><h2>Histórico das ações</h2></div><span class='client-badge'>${total} ações</span></div><div class='client-actions-grid'>${all.map(x=>`<article class='client-action-card'><div class='client-action-top'><div><small>${esc(x.area||'Sem área')} · ${esc(x.fase_plano||'Sem fase')}</small><h3>${esc(x.acao)}</h3></div><span class='status-pill'>${esc(x.concluido_em?'concluída':(x.status||'pendente'))}</span></div><div class='client-action-meta'><span>Prazo <b>${date(x.prazo)}</b></span><span>Score <b>${x.score??'—'}</b></span><span>Prioridade <b>${esc(x.prioridade||'normal')}</b></span></div>${x.concluido_em?'<div class="client-action-done">✓ Ação concluída</div>':`<div class="client-action-footer">${x.prazo&&new Date(x.prazo+'T00:00:00')<today?'<div class="client-action-overdue">⚠ Ação atrasada</div>':''}<button class="mini" onclick="complete(${x.id})">Concluir ação</button></div>`}</article>`).join('')}</div></section>
+      <section class='client-panel'><div class='client-panel-head'><div><small>ACOMPANHAMENTO</small><h2>Histórico das ações</h2></div><span class='client-badge'>${total} ações</span></div><div class='client-actions-grid'>${all.map(x=>`<article class='client-action-card'><div class='client-action-top'><div><small>${esc(x.area||'Sem área')} · ${esc(x.fase_plano||'Sem fase')}</small><h3>${esc(x.acao)}</h3></div><span class='status-pill'>${esc(x.concluido_em?'concluída':(x.status||'pendente'))}</span></div><div class='client-action-meta'><span>Prazo <b>${date(x.prazo)}</b></span><span>Score <b>${x.score??'—'}</b></span><span>Prioridade <b>${esc(x.prioridade||'normal')}</b></span></div>${x.concluido_em?'<div class="client-action-done">✓ Ação concluída</div>':`<div class="client-action-footer">${x.prazo&&new Date(x.prazo+'T00:00:00')<today?'<div class="client-action-overdue">⚠ Ação atrasada</div>':''}<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="mini" onclick="clientEditAction(${x.id})">Editar ação</button><button class="mini" onclick="complete(${x.id})">Concluir ação</button></div></div>`}</article>`).join('')}</div></section>
     </div>`);
+}
+function clientEditAction(id){
+  const a=S.actions.find(x=>x.id===id);
+  if(!a)return alert('Ação não encontrada.');
+  app.innerHTML=`<main class="auth"><div class="authbox" style="max-width:720px"><div class="logo">AG<span>CARE</span></div><h1>Editar ação</h1><p>Atualize os dados da ação.</p><form id="clientEditForm">
+  <label>Ação<input id="ce_acao" required value="${esc(a.acao)}"></label>
+  <label>Área<input id="ce_area" required value="${esc(a.area||'')}"></label>
+  <label>Problema<input id="ce_problema" value="${esc(a.problema||'')}"></label>
+  <label>Prazo<input id="ce_prazo" type="date" required value="${a.prazo||''}"></label>
+  <label>Responsável<input id="ce_resp" value="${esc(a.responsavel||'')}"></label>
+  <label>Status<select id="ce_status"><option ${a.status==='pendente'?'selected':''}>pendente</option><option ${a.status==='em andamento'?'selected':''}>em andamento</option><option ${a.status==='bloqueada'?'selected':''}>bloqueada</option><option ${a.status==='concluída'?'selected':''}>concluída</option></select></label>
+  <div class="formactions"><button>Salvar alterações</button><button type="button" class="linkbtn" onclick="client()">Cancelar</button></div>
+  </form></div></main>`;
+  document.getElementById('clientEditForm').onsubmit=async e=>{
+    e.preventDefault();
+    const status=document.getElementById('ce_status').value;
+    const payload={acao:document.getElementById('ce_acao').value.trim(),area:document.getElementById('ce_area').value.trim(),problema:document.getElementById('ce_problema').value.trim()||null,prazo:document.getElementById('ce_prazo').value,responsavel:document.getElementById('ce_resp').value.trim()||null,status,concluido_em:status==='concluída'?new Date().toISOString():null};
+    const r=await db.from('acoes').update(payload).eq('id',id).eq('cliente_id',S.client.id);
+    if(r.error)return alert(r.error.message);
+    await client();
+    alert('Ação alterada com sucesso.');
+  };
 }
 async function complete(id){const r=await db.from('acoes').update({status:'concluída',concluido_em:new Date().toISOString()}).eq('id',id);if(r.error)return alert(r.error.message);await client();alert('Ação marcada como concluída.');}
 function go(v){event?.preventDefault();if(S.profile.papel==='admin')return admin();return client()}
