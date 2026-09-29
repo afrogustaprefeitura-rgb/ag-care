@@ -83,7 +83,12 @@ BEGIN
       ELSE 'normal'
     END,
     x.area, x.problema, x.maturidade, x.impacto, x.urgencia, x.score,
-    x.responsavel, x.indicador_sucesso, x.meta, x.evidencia, btrim(x.fase_plano),
+    x.responsavel, x.indicador_sucesso, x.meta, x.evidencia,
+    CASE replace(replace(lower(btrim(x.fase_plano)), '–', '-'), '—', '-')
+      WHEN '0-30 dias' THEN '0–30 dias'
+      WHEN '31-60 dias' THEN '31–60 dias'
+      WHEN '61-90 dias' THEN '61–90 dias'
+    END,
     'AG-DIAGNOSTICO', p_origem_id,
     CASE
       WHEN lower(btrim(COALESCE(x.status, ''))) IN ('concluida', 'concluído', 'concluido', 'concluída')
