@@ -2,6 +2,8 @@
 -- STATUS: rascunho para homologação. NÃO executar diretamente em produção.
 -- Objetivos: importação idempotente, sem DELETE, preservar status/conclusão/alertas/histórico.
 -- Pré-requisito: confirmar que o índice único ux_acoes_diagnostico_n8n permanece como descrito.
+-- Esta proposta mantém a regra atual de prazo (CURRENT_DATE + 30/60/90) para evitar
+-- mudar a semântica do negócio sem aprovação. A data do diagnóstico pode ser considerada depois.
 
 CREATE OR REPLACE FUNCTION public.importar_plano_acao_n8n(
   p_cliente_id bigint,
@@ -11,11 +13,10 @@ CREATE OR REPLACE FUNCTION public.importar_plano_acao_n8n(
 RETURNS integer
 LANGUAGE plpgsql
 SECURITY INVOKER
-SET search_path = public
+SET search_path = pg_catalog, public
 AS $function$
 DECLARE
   v_count integer;
-  v_data_diagnostico date;
 BEGIN
   IF p_cliente_id IS NULL OR NOT EXISTS (
     SELECT 1 FROM public.clientes WHERE id = p_cliente_id
@@ -29,6 +30,23 @@ BEGIN
 
   IF p_acoes IS NULL OR jsonb_typeof(p_acoes) <> 'array' THEN
     RAISE EXCEPTION 'p_acoes deve ser um array JSON';
+  END IF;
+
+  IF jsonb_array_length(p_acoes) = 0 THEN
+    RAISE EXCEPTION 'p_acoes não pode ser um array vazio';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+    FROM jsonb_to_recordset(p_acoes) AS x(status text)
+    WHERE x.status IS NOT NULL
+      AND lower(btrim(x.status)) NOT IN (
+        'pendente', 'em andamento', 'bloqueada',
+        'concluida', 'concluída', 'concluido', 'concluído',
+        'nao iniciado', 'não iniciado'
+      )
+  ) THEN
+    RAISE EXCEPTION 'Status de ação inválido';
   END IF;
 
   IF EXISTS (
@@ -51,11 +69,6 @@ BEGIN
     RAISE EXCEPTION 'O JSON contém ações duplicadas com a mesma descrição e fase';
   END IF;
 
-  SELECT COALESCE(data_diagnostico, CURRENT_DATE)
-    INTO v_data_diagnostico
-  FROM public.clientes
-  WHERE id = p_cliente_id;
-
   INSERT INTO public.acoes (
     cliente_id, acao, status, prazo, prioridade,
     area, problema, maturidade, impacto, urgencia, score,
@@ -72,9 +85,9 @@ BEGIN
       ELSE btrim(x.status)
     END,
     CASE replace(replace(lower(btrim(x.fase_plano)), '–', '-'), '—', '-')
-      WHEN '0-30 dias' THEN v_data_diagnostico + 30
-      WHEN '31-60 dias' THEN v_data_diagnostico + 60
-      WHEN '61-90 dias' THEN v_data_diagnostico + 90
+      WHEN '0-30 dias' THEN CURRENT_DATE + 30
+      WHEN '31-60 dias' THEN CURRENT_DATE + 60
+      WHEN '61-90 dias' THEN CURRENT_DATE + 90
     END,
     CASE
       WHEN COALESCE(x.score, 0) >= 70 THEN 'muito alta'
