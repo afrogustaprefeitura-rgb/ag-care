@@ -2,7 +2,7 @@
 
 **Data:** 2026-09-29  
 **Ambiente:** projeto Supabase `rbuadfgwktyiljvggkgm`  
-**Importante:** a função `importar_plano_acao_n8n` ainda NÃO foi substituída. O SQL idempotente continua sendo proposta de homologação.
+**Status atualizado:** a função `importar_plano_acao_n8n` foi substituída pela versão idempotente em 2026-09-29 após teste transacional com rollback. O workflow n8n continua sem execução integrada.
 
 ## Alteração de segurança já aplicada no Supabase
 
@@ -36,7 +36,6 @@ Esse JSON é um artefato de homologação, não está implantado na instância n
 
 ## O que ainda NÃO foi alterado
 
-- Corpo da função `importar_plano_acao_n8n` no banco.
 - Função `cadastrar_cliente_v9` no banco.
 - RLS/políticas de tabela.
 - Configuração de proteção contra senhas comprometidas no Supabase Auth.
@@ -50,3 +49,22 @@ Esse JSON é um artefato de homologação, não está implantado na instância n
 3. Validar reimportação sem exclusão, preservação de IDs/histórico e tratamento de status.
 4. Importar o JSON de homologação com workflow inativo e revisar cada credencial/nó.
 5. Testar Telegram com um destinatário de homologação e confirmar logs de sucesso e falha.
+
+
+## Atualização — função de importação implantada e verificada
+
+A função `public.importar_plano_acao_n8n(bigint,text,jsonb)` foi atualizada no Supabase com a proposta idempotente registrada em `2026-09-29-importar-plano-acao-segura.sql`.
+
+### Verificações realizadas
+- Definição implantada não contém `DELETE FROM public.acoes`.
+- Definição implantada contém `ON CONFLICT ... DO UPDATE`.
+- `SECURITY DEFINER = false` (função executa com privilégios do chamador).
+- `anon` e `authenticated` não possuem EXECUTE; `service_role` possui EXECUTE.
+- Teste transacional com `ROLLBACK`: criação inicial, reimportação com variação de travessão na fase, preservação do mesmo ID, status operacional e `ultimo_alerta_em), além da rejeição de status inválido.
+- Após o rollback, não restaram linhas de teste; totais confirmados: 3 clientes, 30 ações e 9 registros de histórico.
+
+### Limitações
+- Teste foi realizado por SQL no banco, não pelo workflow real do n8n.
+- A função usa `SECURITY INVOKER`; a credencial real do n8n precisa ter os privilégios de tabela necessários.
+- Mudança de descrição da ação muda a chave natural e pode gerar nova linha, pois `acao` faz parte do índice único. Isso deve ser tratado na lógica de negócio antes de assumir que renomeações atualizam a mesma ação.
+- Ainda não houve teste de envio Telegram/WhatsApp nem execução integrada de importação.
