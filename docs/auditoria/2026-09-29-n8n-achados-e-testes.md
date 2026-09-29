@@ -67,3 +67,17 @@ Separar os fluxos lógicos de importação e de alertas, mesmo que permaneçam n
 - Credenciais e parâmetros configurados dentro da instância n8n não são todos representados nos JSONs exportados.
 - Não foi possível confirmar o comportamento real dos provedores sem execução de teste.
 - O contrato final dos status e a política de prazos devem ser acordados antes de ligar o fluxo.
+
+
+## Validação estática do workflow de homologação v2 (2026-09-29)
+
+Foi realizada uma verificação estática do arquivo `AG_Care_Workflow_Homologacao_v2.json` após os ajustes:
+- JSON parseável.
+- Workflow permanece inativo.
+- Todas as conexões apontam para nós existentes.
+- Código JavaScript dos nós passa na verificação sintática do Node.js.
+- Consulta de importação utiliza parâmetros SQL.
+- Merge configurado explicitamente como `append`.
+- Consulta de alertas exclui status `cancelada` e `cancelado`.
+
+**Limitação:** isso não equivale a uma execução no n8n. A consulta SQL de importação ainda não foi aplicada ao Supabase e o workflow não foi executado. Ainda é necessário confirmar a versão do n8n, as credenciais associadas e testar com destinatário de homologação. A confirmação por Telegram está intencionalmente bloqueada por um placeholder até que o chat administrativo de teste seja configurado.
