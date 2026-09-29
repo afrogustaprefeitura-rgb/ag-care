@@ -1,0 +1,69 @@
+# AG Care — achados do workflow n8n e plano de homologação
+
+**Data da inspeção:** 2026-09-29  
+**Status:** auditoria estática dos JSONs enviados; nenhuma execução foi disparada e nenhum workflow foi alterado na instância n8n.
+
+## 1. Importação do diagnóstico
+
+### Achados confirmados no JSON
+1. O nó `Execute a SQL query1` monta SQL por interpolação de `cliente_id`, `origem_id` e `JSON.stringify(acoes)`. Deve usar parâmetros vinculados do nó Postgres, não concatenar valores na consulta.
+2. O nó `Code in JavaScript1` recebe diretamente a saída de `Code in JavaScript`, em paralelo com a chamada SQL. Ele prepara uma mensagem de sucesso sem depender do resultado de `importar_plano_acao_n8n`; pode anunciar sucesso se a importação falhar.
+3. O nó de resumo espera receber `data.acoes`; isso funciona no ramo atual por receber o objeto anterior à importação, não a confirmação do banco. Após corrigir o fluxo, a confirmação deve vir da resposta SQL e os dados do resumo devem ser combinados explicitamente.
+4. A chamada SQL atual depende de a função `importar_plano_acao_n8n` estar segura para reimportação. A versão implantada observada contém `DELETE` por cliente/origem/origem_id seguido de `INSERT`; isso pode apagar histórico e logs com chaves estrangeiras `ON DELETE CASCADE`.
+5. A função `cadastrar_cliente_v9` também é chamada por SQL montado por concatenação no nó de cadastro. Embora haja escape de aspas simples, o padrão recomendado é consulta parametrizada.
+
+## 2. Alertas
+
+1. A consulta principal junta ações a `cliente_alertas_whatsapp`, mas o mesmo conjunto de resultados é encaminhado para envio ao Telegram. Portanto, a seleção de alertas Telegram depende de existir um destinatário WhatsApp para a empresa.
+2. O nó Telegram usa um `chatId` fixo, em vez do campo do destinatário da empresa.
+3. A consulta retorna `acao_id`, enquanto o nó de atualização usa `WHERE id = $1`; o mapeamento de parâmetro não está documentado/configurado no JSON examinado.
+4. O caminho de WhatsApp usa um template placeholder e precisa de credenciais, número e template aprovados configurados na instância.
+5. O fluxo inclui uma consulta REST à view de Telegram em um caminho separado, sem ligação funcional ao envio principal no JSON examinado.
+6. Não há escrita confiável de sucesso/erro nas tabelas de histórico de envio após cada tentativa. O campo `ultimo_alerta_em` isolado não fornece auditoria por destinatário/canal.
+
+## 3. Desenho recomendado
+
+Separar os fluxos lógicos de importação e de alertas, mesmo que permaneçam no mesmo workflow n8n:
+
+### Importação
+- Receber arquivo e validar as abas/colunas necessárias.
+- Validar o cadastro e normalizar datas.
+- Criar/atualizar cliente e obter o ID.
+- Construir as ações e validar descrição, fase, score e status.
+- Chamar a função idempotente usando parâmetros SQL.
+- Verificar que a função retornou a quantidade esperada.
+- Só então enviar a confirmação de sucesso.
+- Em falha, enviar erro operacional e não confirmar sucesso.
+
+### Alertas
+- Consultar ações abertas uma vez, independentemente do canal.
+- Consultar separadamente destinatários Telegram e WhatsApp ativos.
+- Gerar um item por ação + destinatário + canal.
+- Evitar duplicatas com chave idempotente no log de envio.
+- Registrar tentativa, resultado, identificador da mensagem e erro.
+- Atualizar `ultimo_alerta_em` apenas conforme a regra aprovada; não marcar como enviado antes de o provedor confirmar.
+- Não usar um destinatário pessoal fixo no workflow de produção.
+
+## 4. Testes mínimos
+
+### Importação
+- Arquivo válido com 10 ações: criar 10.
+- Reimportação idêntica: manter 10 e preservar IDs.
+- Reimportação com descrição/score alterado: atualizar os campos definidos sem excluir histórico.
+- Falha SQL: não enviar confirmação de sucesso.
+- JSON inválido, vazio quando não permitido, fase inválida e duplicidade: falhar sem apagar dados.
+- Diagnóstico de outra empresa com mesmo `origem_id`: nunca modificar ações da primeira empresa.
+
+### Alertas
+- Empresa sem destinatários: nenhum envio e nenhuma falsa marcação de sucesso.
+- Só Telegram configurado: enviar somente Telegram.
+- Só WhatsApp configurado: enviar somente WhatsApp.
+- Ambos configurados: enviar para os destinatários ativos de cada canal.
+- Ação concluída/cancelada: não enviar alerta de prazo.
+- Falha de provedor: registrar erro e permitir retentativa controlada.
+- Execução repetida no mesmo dia: não duplicar mensagens para o mesmo destinatário.
+
+## 5. Dependências ainda não verificadas
+- Credenciais e parâmetros configurados dentro da instância n8n não são todos representados nos JSONs exportados.
+- Não foi possível confirmar o comportamento real dos provedores sem execução de teste.
+- O contrato final dos status e a política de prazos devem ser acordados antes de ligar o fluxo.
