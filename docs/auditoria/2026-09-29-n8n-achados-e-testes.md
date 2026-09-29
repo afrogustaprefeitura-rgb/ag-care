@@ -81,3 +81,21 @@ Foi realizada uma verificação estática do arquivo `AG_Care_Workflow_Homologac
 - Consulta de alertas exclui status `cancelada` e `cancelado`.
 
 **Limitação:** isso não equivale a uma execução no n8n. A consulta SQL de importação ainda não foi aplicada ao Supabase e o workflow não foi executado. Ainda é necessário confirmar a versão do n8n, as credenciais associadas e testar com destinatário de homologação. A confirmação por Telegram está intencionalmente bloqueada por um placeholder até que o chat administrativo de teste seja configurado.
+
+
+## Revisão adicional do alerta de prazo — homologação v3
+
+Foi gerado um novo arquivo local `AG_Care_Workflow_Homologacao_v3.json` (não ativo) com um ajuste no filtro SQL de alertas: além de verificar `concluido_em IS NULL`, agora exclui também status de conclusão conhecidos (`concluida`, `concluída`, `concluido`, `concluído`). Isso evita enviar lembretes quando o status já indica conclusão, mas a data de conclusão não foi preenchida.
+
+Validações estáticas da v3:
+- JSON parseável.
+- 21 nós; workflow `active=false`.
+- Todas as conexões referenciam nós existentes.
+- 5 nós com JavaScript verificados sintaticamente; sem erros de sintaxe.
+
+## Limitações restantes identificadas
+
+- O schema exige `acoes_alertas_telegram_envios.enviado_em` mesmo para registros com `status='erro'`; o nó atual registra a hora da tentativa nesse campo, cujo nome sugere sucesso. Não alterei o schema de produção. Antes da produção, decidir entre adicionar `tentado_em`, permitir `enviado_em=NULL` nos erros, ou documentar formalmente que o campo significa horário da tentativa.
+- A consulta de deduplicação impede reenvio quando já existe `status='enviado'` no mesmo dia para a mesma ação/destinatário; falhas podem ser retentadas.
+- A conexão Postgres e a conta Telegram referenciadas no export precisam existir na instância de destino. Nenhum envio real foi executado.
+- A função de importação proposta ainda não foi executada nem aplicada; a versão implantada continua usando `DELETE` seguido de `INSERT`.
