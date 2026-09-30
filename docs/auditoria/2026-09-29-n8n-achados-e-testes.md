@@ -154,3 +154,29 @@ Foi criado localmente o arquivo `AG_Care_Workflow_Homologacao_v4.json`, mantendo
 Validações locais realizadas: JSON válido, workflow inativo, conexões apontam para nós existentes, sintaxe JavaScript válida; testes unitários isolados passaram para ISO, data brasileira, serial Excel, campo vazio e rejeição de data/formato inválido.
 
 **Limitação:** v4 ainda não foi importado nem executado na instância n8n. A data de cadastro só é necessária para o campo `data_diagnostico`; confirme que os formatos reais da planilha estão cobertos antes de homologar. Nenhuma credencial ou token foi alterado.
+
+
+## Arquitetura híbrida — homologação v5 (2026-09-30)
+
+A direção do produto foi confirmada: WhatsApp envia mensagens aos clientes; Telegram fica restrito às notificações privadas do administrador sobre resultado de envio e resumo de importação. Foi gerado localmente `AG_Care_Workflow_Homologacao_v5.json`; ele não foi importado nem executado na instância n8n e permanece `active=false`.
+
+### Alterações no artefato v5
+- A consulta de alertas seleciona destinatários ativos de `public.cliente_alertas_whatsapp` e exclui reenvios no mesmo dia quando há log com `status='enviado'` em `public.acoes_alertas_whatsapp_envios`.
+- O envio ao cliente usa o nó WhatsApp Business Cloud já presente no JSON histórico, com a credencial referenciada nesse arquivo. O ID do número remetente e o nome do template aprovado permanecem placeholders explícitos; devem ser preenchidos no n8n antes de qualquer teste.
+- Após o nó WhatsApp retornar sucesso, o fluxo atualiza `acoes.ultimo_alerta_em`, registra `acoes_alertas_whatsapp_envios` e então notifica o administrador pelo Telegram. O log de sucesso retorna uma linha para manter a cadeia de execução.
+- Em erro de WhatsApp, registra status `erro` na tabela WhatsApp e tenta notificar o administrador pelo Telegram; não atualiza `ultimo_alerta_em`.
+- O resumo de importação no Telegram está ligado somente ao resultado SQL. Foi removida a ligação paralela que poderia produzir uma confirmação antes da importação terminar.
+- O Chat ID administrativo no artefato foi definido como `7298031965`, recuperado do JSON histórico anterior. Validar que corresponde ao chat correto da instância atual antes do teste.
+
+### Validação estática do v5
+- JSON válido, 23 nós, IDs únicos e workflow inativo.
+- Todas as conexões apontam para nós existentes.
+- Sintaxe JavaScript dos nós Code validada com `node --check`.
+- As tabelas e colunas de log WhatsApp foram conferidas no schema Supabase atual; não foi feita alteração no banco.
+
+### Limitações antes da homologação
+- O nó WhatsApp tem placeholders para `phoneNumberId` e nome do template aprovado. O JSON histórico do nó não contém mapeamento de variáveis de template; se o template aprovado usar variáveis, configurar seus parâmetros no nó conforme o template real e testar com um destinatário autorizado.
+- O registro `enviado` significa que o nó/provedor aceitou a chamada; não é confirmação de entrega final. Se houver webhook de status do WhatsApp, integrar os estados entregue/lido em etapa separada.
+- A credencial referenciada no export pode não existir na instância atual; verificar pelo seletor de credenciais do n8n sem copiar segredos para o arquivo.
+- O Telegram administrativo também depende de credencial válida e do Chat ID correto. Se o Telegram de monitoramento falhar, o log WhatsApp já deve estar gravado.
+- Ainda não houve teste integrado de WhatsApp, Telegram ou importação real. Não ativar o workflow até preencher placeholders e concluir teste controlado.
