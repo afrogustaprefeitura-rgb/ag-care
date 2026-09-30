@@ -139,3 +139,18 @@ O JSON local foi reaberto e os nós/parametrizações foram inspecionados; isso 
 - Reexecutar após falha no mesmo dia e confirmar a política desejada para tentativas/log.
 - Testar importação com nova execução idêntica, mudança de score e mudança de descrição; observar IDs, status, histórico e quantidade retornada.
 - Confirmar o papel SQL da credencial Postgres na instância n8n e seus privilégios mínimos antes de executar a importação real.
+
+
+## Homologação v4 — parser explícito de data (2026-09-30)
+
+Foi criado localmente o arquivo `AG_Care_Workflow_Homologacao_v4.json`, mantendo o workflow inativo e os 21 nós da v3. A alteração está restrita à função `normalizarData` do nó `Code - Preparar Cadastro`:
+- aceita data serial numérica do Excel;
+- aceita data ISO `AAAA-MM-DD`;
+- aceita data brasileira `DD/MM/AAAA`;
+- valida calendário (por exemplo, rejeita `31/02/2026`);
+- mantém campo vazio como `null`;
+- lança erro explícito para formato desconhecido, em vez de converter silenciosamente para `null`.
+
+Validações locais realizadas: JSON válido, workflow inativo, conexões apontam para nós existentes, sintaxe JavaScript válida; testes unitários isolados passaram para ISO, data brasileira, serial Excel, campo vazio e rejeição de data/formato inválido.
+
+**Limitação:** v4 ainda não foi importado nem executado na instância n8n. A data de cadastro só é necessária para o campo `data_diagnostico`; confirme que os formatos reais da planilha estão cobertos antes de homologar. Nenhuma credencial ou token foi alterado.
