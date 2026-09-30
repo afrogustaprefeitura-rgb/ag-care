@@ -68,3 +68,18 @@ A função `public.importar_plano_acao_n8n(bigint,text,jsonb)` foi atualizada no
 - A função usa `SECURITY INVOKER`; a credencial real do n8n precisa ter os privilégios de tabela necessários.
 - Mudança de descrição da ação muda a chave natural e pode gerar nova linha, pois `acao` faz parte do índice único. Isso deve ser tratado na lógica de negócio antes de assumir que renomeações atualizam a mesma ação.
 - Ainda não houve teste de envio Telegram/WhatsApp nem execução integrada de importação.
+
+
+## Atualização — revisão de privilégios de tabelas (2026-09-29)
+
+Foi identificada uma concessão excessiva de privilégios não-DML nas tabelas/views públicas: `REFERENCES`, `TRIGGER` e `TRUNCATE` estavam concedidos a `anon`, `authenticated` e/ou `service_role`. Esses privilégios foram revogados em todas as relações existentes no schema `public` e a consulta posterior confirmou que não permanecem concedidos a esses papéis.
+
+Os privilégios de aplicação necessários para o acesso autenticado (por exemplo, SELECT/INSERT/UPDATE conforme a tabela) foram mantidos. Não foram alteradas as políticas RLS nesta etapa.
+
+A inspeção também encontrou privilégios padrão para objetos futuros configurados para os criadores `postgres` e `supabase_admin`. Esses padrões não foram modificados nesta etapa para evitar mudanças amplas sem uma matriz de permissões aprovada. Devem ser revistos separadamente; novas tabelas precisam receber grants explícitos e RLS apropriada.
+
+## Estado de homologação atualizado
+- Importação idempotente implantada e testada por transação com rollback.
+- Privilégios REFERENCES/TRIGGER/TRUNCATE revogados nas relações públicas existentes.
+- Não houve alteração nos totais de clientes, ações e histórico.
+- Ainda falta validar a credencial real do n8n, pois o workflow exportado não revela a senha/usuário efetivamente configurados na instância.
