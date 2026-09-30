@@ -99,3 +99,17 @@ Validações estáticas da v3:
 - A consulta de deduplicação impede reenvio quando já existe `status='enviado'` no mesmo dia para a mesma ação/destinatário; falhas podem ser retentadas.
 - A conexão Postgres e a conta Telegram referenciadas no export precisam existir na instância de destino. Nenhum envio real foi executado.
 - A função de importação proposta ainda não foi executada nem aplicada; a versão implantada continua usando `DELETE` seguido de `INSERT`.
+
+
+## Retificação de estado — verificação direta no Supabase em 2026-09-30
+
+As notas abaixo corrigem o estado da importação descrito na seção inicial, que é histórico e anterior à implantação da função segura.
+
+- A função atualmente implantada `public.importar_plano_acao_n8n` usa `ON CONFLICT ... DO UPDATE`, sem `DELETE`; a definição direta no banco foi consultada.
+- O índice parcial `ux_acoes_diagnostico_n8n` está presente e corresponde à chave de conflito.
+- A versão local de homologação v3 permanece apenas validada estaticamente; não foi executada nem importada/ativada na instância n8n.
+- O schema de envio Telegram exige `enviado_em` e aceita `status` igual a `enviado` ou `erro`. O registro de erro atualmente preencher esse campo com a hora da tentativa é uma ambiguidade semântica ainda pendente; nenhuma mudança de schema foi feita.
+- O alerta do Supabase sobre as funções `usuario_admin()` e `usuario_tem_cliente(bigint)` foi confirmado. Elas são chamadas por políticas RLS e não devem ser modificadas ou ter EXECUTE revogado sem teste controlado da autorização.
+- A integração real continua bloqueada até identificar o papel SQL usado pelo nó Postgres do n8n. A função de importação é `SECURITY INVOKER`; `service_role` não possui grants DML diretos sobre `public.acoes` segundo a consulta atual, então não presumir que chamada via API e chamada via conexão SQL se comportam da mesma forma.
+
+Próxima ordem de trabalho: (1) revisar o JSON v3 nó por nó e os parâmetros do Postgres; (2) confirmar usuário/role efetivo da conexão n8n sem revelar segredo; (3) executar teste de importação em homologação com rollback ou dados sintéticos; (4) testar alertas com destinatário de teste e verificar log de sucesso/falha; (5) só então considerar ativação.
