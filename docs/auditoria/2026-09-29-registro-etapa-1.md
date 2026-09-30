@@ -83,3 +83,16 @@ A inspeção também encontrou privilégios padrão para objetos futuros configu
 - Privilégios REFERENCES/TRIGGER/TRUNCATE revogados nas relações públicas existentes.
 - Não houve alteração nos totais de clientes, ações e histórico.
 - Ainda falta validar a credencial real do n8n, pois o workflow exportado não revela a senha/usuário efetivamente configurados na instância.
+
+
+## Revisão de grants padrão — limitação de permissão
+
+A consulta a `pg_default_acl` encontrou permissões padrão amplas para objetos futuros criados pelos papéis `postgres` e `supabase_admin` no schema `public`. Tentei restringir esses defaults por `ALTER DEFAULT PRIVILEGES`, mas a sessão técnica recebeu `permission denied to change default privileges`; a transação falhou e essa alteração NÃO foi aplicada.
+
+### Situação verificada
+- Para relações públicas já existentes, `REFERENCES`, `TRIGGER` e `TRUNCATE` foram revogados de `anon`, `authenticated` e `service_role`.
+- Os grants DML/SELECT necessários já concedidos a `authenticated` foram mantidos.
+- A função de importação permanece sem EXECUTE para `anon` e `authenticated`, e com EXECUTE para `service_role`.
+- A função está como `SECURITY INVOKER`. O papel `service_role` não tem atualmente INSERT/UPDATE direto em `public.acoes`; portanto, a chamada via PostgREST com esse papel pode falhar por privilégio. O nó Postgres do n8n provavelmente usa uma credencial de banco diferente, mas isso ainda precisa ser confirmado na instância e testado sem expor credenciais.
+
+Não aplicar grants adicionais amplos para resolver essa possível falha. Confirmar primeiro a identidade SQL da credencial n8n e conceder somente os privilégios mínimos necessários, se aplicável.
