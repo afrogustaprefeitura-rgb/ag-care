@@ -113,3 +113,29 @@ As notas abaixo corrigem o estado da importação descrito na seção inicial, q
 - A integração real continua bloqueada até identificar o papel SQL usado pelo nó Postgres do n8n. A função de importação é `SECURITY INVOKER`; `service_role` não possui grants DML diretos sobre `public.acoes` segundo a consulta atual, então não presumir que chamada via API e chamada via conexão SQL se comportam da mesma forma.
 
 Próxima ordem de trabalho: (1) revisar o JSON v3 nó por nó e os parâmetros do Postgres; (2) confirmar usuário/role efetivo da conexão n8n sem revelar segredo; (3) executar teste de importação em homologação com rollback ou dados sintéticos; (4) testar alertas com destinatário de teste e verificar log de sucesso/falha; (5) só então considerar ativação.
+
+
+## Revisão estática adicional da homologação v3 — 2026-09-30
+
+O JSON local foi reaberto e os nós/parametrizações foram inspecionados; isso continua sendo revisão estática, sem execução na instância n8n.
+
+### Pontos confirmados
+- O nó Telegram de alertas está configurado com `onError: continueErrorOutput`, e a saída de erro está ligada ao nó `Falha de Envio (sem UPDATE)`.
+- A consulta de seleção filtra ações com `concluido_em IS NULL`, exclui os status de conclusão/cancelamento conhecidos e busca prazos até três dias à frente, incluindo vencidas.
+- O nó de sucesso atualiza `ultimo_alerta_em` somente após o nó de envio retornar sucesso; a gravação do log usa `ON CONFLICT`.
+- A importação usa parâmetros do nó Postgres para os argumentos de `importar_plano_acao_n8n`; o resumo depende do resultado SQL e compara a quantidade retornada com a quantidade preparada.
+- O cadastro usa parâmetros vinculados para chamar `cadastrar_cliente_v9`.
+
+### Pendências adicionais
+1. **Histórico de erros não é imutável:** o log de Telegram tem unicidade por ação/destinatário/data e o caminho de erro faz `ON CONFLICT DO UPDATE`. Isso permite nova tentativa, mas substitui o estado/erro anterior em vez de manter uma linha por tentativa. Decidir se o requisito é estado atual por dia ou auditoria de cada tentativa.
+2. **Nome do timestamp:** o caminho de falha preenche `enviado_em` com o horário da tentativa mesmo quando `status='erro'`. Não altera o envio, mas o nome do campo é ambíguo. Antes de produção, documentar essa semântica ou planejar uma coluna `tentado_em`/estrutura de tentativas.
+3. **Data brasileira do cadastro:** a função `normalizarData` do nó `Code - Preparar Cadastro` aceita números de série do Excel e strings ISO `YYYY-MM-DD`, mas devolve `null` para strings brasileiras como `29/09/2026`. Confirmar o formato real da planilha; se datas brasileiras forem possíveis, implementar parser explícito e testes de datas inválidas antes da homologação.
+4. **Credenciais externas:** o JSON contém referências a credenciais Postgres e Telegram por nome/ID interno. Isso não confirma que existam na instância de destino nem que o papel SQL tenha os privilégios necessários. Não compartilhar nem inserir senhas/tokens no JSON.
+5. **Política de reimportação:** a função retorna número de linhas inseridas/atualizadas; uma atualização idempotente pode preservar o status operacional existente. A comparação estrita entre quantidade retornada e quantidade de ações da planilha é adequada somente se cada ação de entrada corresponde a uma linha distinta após validação; deve continuar coberta por testes de duplicidade/chave natural.
+
+### Próximos testes de homologação
+- Testar data ISO, número serial Excel, data brasileira, vazio e data inválida.
+- Simular envio Telegram bem-sucedido e falho com destinatário de teste; verificar `ultimo_alerta_em`, `status`, `erro` e identificador da mensagem.
+- Reexecutar após falha no mesmo dia e confirmar a política desejada para tentativas/log.
+- Testar importação com nova execução idêntica, mudança de score e mudança de descrição; observar IDs, status, histórico e quantidade retornada.
+- Confirmar o papel SQL da credencial Postgres na instância n8n e seus privilégios mínimos antes de executar a importação real.
