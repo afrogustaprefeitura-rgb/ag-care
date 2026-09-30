@@ -96,3 +96,22 @@ A consulta a `pg_default_acl` encontrou permissões padrão amplas para objetos 
 - A função está como `SECURITY INVOKER`. O papel `service_role` não tem atualmente INSERT/UPDATE direto em `public.acoes`; portanto, a chamada via PostgREST com esse papel pode falhar por privilégio. O nó Postgres do n8n provavelmente usa uma credencial de banco diferente, mas isso ainda precisa ser confirmado na instância e testado sem expor credenciais.
 
 Não aplicar grants adicionais amplos para resolver essa possível falha. Confirmar primeiro a identidade SQL da credencial n8n e conceder somente os privilégios mínimos necessários, se aplicável.
+
+
+## Retificação de auditoria — estado conferido em 2026-09-30
+
+Esta seção prevalece sobre observações históricas anteriores que descreviam a função de importação como `DELETE` seguido de `INSERT`.
+
+A definição consultada diretamente no Supabase confirma que `public.importar_plano_acao_n8n(bigint,text,jsonb)` está em modo `SECURITY INVOKER`, valida o array JSON/status/fase/duplicidades e usa `INSERT ... ON CONFLICT ... DO UPDATE`. Não contém `DELETE FROM public.acoes`. O índice parcial `ux_acoes_diagnostico_n8n` existe e corresponde à chave de conflito usada pela função. O teste transacional com rollback está descrito acima; ainda falta o teste integrado com a credencial real do n8n.
+
+A função `cadastrar_cliente_v9` também é `SECURITY INVOKER`; sua lógica atual faz SELECT seguido de INSERT/UPDATE, portanto a integração deve confirmar tratamento de concorrência e permissões do usuário SQL.
+
+Os alertas de segurança do Supabase sobre `usuario_admin()` e `usuario_tem_cliente(bigint)` foram inspecionados. Ambas são funções `SECURITY DEFINER` usadas por políticas RLS. Não foram alteradas: revogar EXECUTE ou trocar o modo sem testar a matriz RLS pode quebrar a autorização. Próximo passo é revisar se o uso de `auth.uid()`, `search_path` fixo e as permissões atuais atendem ao modelo de acesso, e então testar políticas com contas de admin, consultor e cliente.
+
+Achados de performance observados em 2026-09-30:
+- `clientes_id_diagnostico_uq` e `ux_clientes_id_diagnostico` são índices únicos parciais duplicados sobre `id_diagnostico`; não remover nenhum até confirmar dependências e escolher o nome canônico.
+- `acoes_historico_usuario_id_fkey` não tem índice de cobertura identificado.
+- Os avisos `auth_rls_initplan` indicam oportunidades de otimização nas políticas de `perfis_usuario` e `cliente_usuarios`; tratar em mudança isolada com testes RLS.
+- A proteção contra senhas comprometidas permanece desativada no Supabase Auth e requer ajuste pelo painel/configuração autorizada.
+
+A tabela `public.acoes` tem grants INSERT/SELECT/UPDATE para `authenticated`, mas não para `service_role` segundo `information_schema.role_table_grants`. A função de importação é `SECURITY INVOKER`; portanto, a chamada via PostgREST com `service_role` pode falhar por privilégios de tabela. Isso não prova falha do nó Postgres n8n, pois sua credencial SQL pode ser outro papel. Não conceder privilégios amplos antes de identificar e testar o papel efetivo do n8n.
